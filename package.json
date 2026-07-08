@@ -1,0 +1,12 @@
+{
+  "name": "quality-core",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.1.3",
+  "scripts": {
+    "typecheck": "tsgo -p tsconfig.json",
+    "lint": "cd ../../.. && eslint --max-warnings 0 \"scripts/tools/quality-core/src/**/*.ts\" \"scripts/tools/quality-core/test/**/*.ts\"",
+    "test": "bun test test src"
+  },
+  "devDependencies": {}
+}

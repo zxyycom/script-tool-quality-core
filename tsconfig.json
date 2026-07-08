@@ -1,0 +1,13 @@
+{
+  "extends": "../../../tsconfig.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "../../../.cache/typescript/quality-core.tsbuildinfo"
+  },
+  "include": [
+    "*.ts",
+    "src/**/*.ts",
+    "../bun-test.d.ts",
+    "test/**/*.ts",
+    "../foundation/src/**/*.ts"
+  ]
+}

@@ -2,19 +2,22 @@ import { getChangedFileList, type ChangedFilesOptions } from "../input/files.ts"
 import type { ChangeScope } from "./command-model.ts";
 import type { QualityConfig } from "../model/schema.ts";
 
-export function resolveChangedFilesForScan({
-  opts,
-  config,
-  root,
-  scope,
-  collectChangedFiles = getChangedFileList
-}: {
+export type ResolveChangedFilesForScanOptions = {
   collectChangedFiles?: (opts: ChangedFilesOptions, rootDir: string) => string[];
   config?: Pick<QualityConfig, "include">;
   opts: Pick<ChangedFilesOptions, "changedFiles">;
   root: string;
   scope: ChangeScope;
-}): string[] {
+};
+
+export function resolveChangedFilesForScan(options: ResolveChangedFilesForScanOptions): string[] {
+  const {
+    opts,
+    config,
+    root,
+    scope,
+    collectChangedFiles = getChangedFileList
+  } = options;
   const changedFileOptions = { ...opts, scanInputPaths: config?.include ?? [] };
   if (opts.changedFiles) {
     return collectChangedFiles(changedFileOptions, root);

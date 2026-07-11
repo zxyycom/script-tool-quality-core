@@ -4,7 +4,6 @@ import { errorMessage } from "../../foundation/src/index.ts";
 import { classifyFiles } from "./model/code-areas.ts";
 import { createEmptyMetrics } from "./model/schema.ts";
 import type {
-  BaselineSnapshot,
   CodeAreaFileMap,
   CodeAreaFingerprint,
   FatalIssue,
@@ -12,10 +11,10 @@ import type {
   QualityMetrics,
   ToolAvailability
 } from "./model/schema.ts";
+import { generateScanWarnings } from "./engine/warnings.ts";
 import { detectScanInputChange } from "./input/revisions.ts";
 import { buildFingerprints, collectScanFiles } from "./input/files.ts";
 import { runCurrentRevisionScan } from "./measurement/current-revision/index.ts";
-import { generateWarningChannels } from "./output/warnings/generator.ts";
 import type { ChangeScope, QualityScanOptions } from "./scan-command/index.ts";
 import {
   collectToolMetadata,
@@ -100,7 +99,7 @@ export async function runQualityScan({
   const baselineSnapshot = await timings.measureAsync("baseline snapshot", () =>
     maybeScanBaselineRevision({ config, root, runtime })
   );
-  generateWarnings({
+  generateScanWarnings({
     baselineSnapshot,
     config,
     metrics: runtime.metrics,
@@ -223,47 +222,6 @@ async function scanCurrentRevision(
     fileMap: inputs.fileMap,
     scanProfile: runtime.opts.scanProfile
   }));
-}
-
-function generateWarnings({
-  baselineSnapshot,
-  config,
-  metrics,
-  scanProfile,
-  scope,
-  timings
-}: {
-  baselineSnapshot: BaselineSnapshot | null;
-  config: QualityConfig;
-  metrics: QualityMetrics;
-  scanProfile: QualityScanOptions["scanProfile"];
-  scope: ChangeScope;
-  timings: Timings;
-}): void {
-  console.log("Generating warnings...");
-  metrics.warnings = timings.measure("generate warnings", () => generateWarningChannels({
-    files: metrics.fileMetrics,
-    functions: metrics.functionMetrics,
-    duplicates: metrics.duplicateCode,
-    config,
-    scope,
-    baseline: baselineSnapshot
-      ? {
-          files: baselineSnapshot.fileMetrics,
-          functions: baselineSnapshot.functionMetrics,
-          duplicates: baselineSnapshot.duplicateCode
-        }
-      : null,
-    comparisonStatus: metrics.comparisonStatus,
-    validateAcceptedWarnings: scanProfile === "full"
-  }));
-  const warningCounts = [
-    `all=${metrics.warnings.all.length}`,
-    `changed=${metrics.warnings.changed.length}`,
-    `regressions=${metrics.warnings.regressions.length}`,
-    `withAcceptedReason=${metrics.warnings.all.filter((warning) => warning.acceptedReason).length}`
-  ].join(", ");
-  console.log(`  Warning records generated: ${warningCounts}`);
 }
 
 function finishScan({

@@ -40,6 +40,20 @@ type MaterializedBaselineScanOptions = {
   toolResults: ToolAvailability[];
 };
 
+type CachedBaselineReuseOptions = {
+  baselineCommitSha: string;
+  cacheIdentity: BaselineSnapshotCacheIdentity;
+  config: QualityConfig;
+  metrics: QualityMetrics;
+  rawDir: string;
+  root: string;
+};
+
+type TemporaryBaselineScanOptions = Omit<
+  MaterializedBaselineScanOptions,
+  "baselineWorkDir"
+>;
+
 export async function maybeScanBaselineRevision({
   config,
   root,
@@ -78,23 +92,15 @@ export async function maybeScanBaselineRevision({
   });
   if (cachedBaseline) return cachedBaseline;
 
-  const baselineWorkDir = join(tmpdir(), `quality-baseline-${randomUUID()}`);
-  console.log(`Materializing baseline ${baselineCommitSha.slice(0, 7)}...`);
-
-  try {
-    return await scanMaterializedBaseline({
-      baselineCommitSha,
-      cacheIdentity,
-      baselineWorkDir,
-      config,
-      metrics,
-      rawDir,
-      root,
-      toolResults
-    });
-  } finally {
-    rmSync(baselineWorkDir, { recursive: true, force: true });
-  }
+  return scanTemporaryBaseline({
+    baselineCommitSha,
+    cacheIdentity,
+    config,
+    metrics,
+    rawDir,
+    root,
+    toolResults
+  });
 }
 
 function reuseCurrentSnapshotForUnchangedInput(
@@ -111,21 +117,8 @@ function reuseCurrentSnapshotForUnchangedInput(
   return baselineSnapshot;
 }
 
-function reuseCachedBaselineSnapshot({
-  baselineCommitSha,
-  cacheIdentity,
-  config,
-  metrics,
-  rawDir,
-  root
-}: {
-  baselineCommitSha: string;
-  cacheIdentity: BaselineSnapshotCacheIdentity;
-  config: QualityConfig;
-  metrics: QualityMetrics;
-  rawDir: string;
-  root: string;
-}): BaselineSnapshot | null {
+function reuseCachedBaselineSnapshot(options: CachedBaselineReuseOptions): BaselineSnapshot | null {
+  const { baselineCommitSha, cacheIdentity, config, metrics, rawDir, root } = options;
   const cachedBaseline = loadBaselineSnapshotCacheEntry({
     rootDir: join(root, config.cacheDir),
     identity: cacheIdentity
@@ -144,6 +137,17 @@ function reuseCachedBaselineSnapshot({
   }
 
   return null;
+}
+
+async function scanTemporaryBaseline(options: TemporaryBaselineScanOptions): Promise<BaselineSnapshot | null> {
+  const baselineWorkDir = join(tmpdir(), `quality-baseline-${randomUUID()}`);
+  console.log(`Materializing baseline ${options.baselineCommitSha.slice(0, 7)}...`);
+
+  try {
+    return await scanMaterializedBaseline({ ...options, baselineWorkDir });
+  } finally {
+    rmSync(baselineWorkDir, { recursive: true, force: true });
+  }
 }
 
 async function scanMaterializedBaseline(options: MaterializedBaselineScanOptions): Promise<BaselineSnapshot | null> {

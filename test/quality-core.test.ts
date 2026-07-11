@@ -36,9 +36,9 @@ describe("script quality core", () => {
     const warnings = generateWarningChannels({
       files: [
         {
-          codeArea: "scripts",
+          codeArea: "typescript-production-scripts",
           codeLines: 301,
-          decisionTokens: { source: "scc", value: 1 },
+          decisionTokens: { source: "scc", value: 11 },
           isChanged: true,
           language: "TypeScript",
           lines: 320,
@@ -54,7 +54,17 @@ describe("script quality core", () => {
       validateAcceptedWarnings: false
     });
 
-    expect(warnings.all).toHaveLength(0);
+    expect(warnings.all.map((warning) => [
+      warning.ruleId,
+      warning.codeArea,
+      warning.path,
+      warning.value
+    ])).toEqual([[
+      "scc-file-code-lines",
+      "typescript-production-scripts",
+      "scripts/a.ts",
+      301
+    ]]);
     expect(warnings.changed).toHaveLength(0);
   });
 });

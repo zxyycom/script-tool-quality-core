@@ -1,4 +1,12 @@
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import type { QualityConfig } from "../src/index.ts";
+
+const JSCPD_ENTRY = resolve(
+  dirname(fileURLToPath(import.meta.resolve("jscpd/package.json"))),
+  "run-jscpd.js"
+);
 
 export const TEST_QUALITY_CONFIG: QualityConfig = {
   acceptedWarnings: [],
@@ -67,7 +75,7 @@ export const TEST_QUALITY_CONFIG: QualityConfig = {
     }
   },
   tools: {
-    jscpd: { command: "jscpd", args: [] },
+    jscpd: { command: process.execPath, args: [JSCPD_ENTRY] },
     lizard: { command: "python", args: ["-m", "lizard"] },
     scc: { command: "scc", args: [] }
   },

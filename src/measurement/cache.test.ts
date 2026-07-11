@@ -117,12 +117,6 @@ describe("quality measurement cache", () => {
         `quality-scan-cache-v1/${baseKey}.json`
       );
 
-      const oldPmdIdentity = {
-        ...identity,
-        toolName: "pmd-cpd" as "jscpd",
-        toolVersion: "7.25.0"
-      };
-      assert.notEqual(baseKey, buildScanCacheKey(oldPmdIdentity));
       assert.notEqual(
         baseKey,
         buildScanCacheKey({

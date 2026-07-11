@@ -8,23 +8,27 @@ import { createHash } from "node:crypto";
 import { minimatch } from "minimatch";
 
 import { buildFingerprint, isExcluded } from "../model/code-areas.ts";
-import { getWorkingTreeChangedFiles } from "./revisions.ts";
+import { collectSubmoduleWorktreeFiles } from "./revision-tree.ts";
+import { getRevisionChangedFiles, getWorkingTreeChangedFiles } from "./revisions.ts";
 import { gitGlobPathspecArgs } from "./git-pathspec.ts";
 import { processFailed, runGit, splitGitFileList, toSlashPath, walkFiles } from "../../../foundation/src/index.ts";
 import type { CodeAreaFileMap, CodeAreaFingerprint, QualityConfig } from "../model/schema.ts";
+
+export type ScanInputConfig = Pick<QualityConfig, "excludeDirs" | "generatedFiles" | "include">;
 
 export type ChangedFilesOptions = {
   changedFiles?: string | null;
   scanInputPaths?: string[] | readonly string[];
 };
 
-export function collectScanFiles(rootDir: string, config: QualityConfig): string[] {
+export function collectScanFiles(rootDir: string, config: ScanInputConfig): string[] {
+  const pathspecArgs = gitGlobPathspecArgs(config.include);
   const result = runGit([
     "ls-files",
     "--cached",
     "--others",
     "--exclude-standard",
-    ...gitGlobPathspecArgs(config.include)
+    ...pathspecArgs
   ], {
     cwd: rootDir,
     maxBuffer: 1024 * 1024 * 64
@@ -35,23 +39,30 @@ export function collectScanFiles(rootDir: string, config: QualityConfig): string
     return collectFilesFallback(rootDir, config);
   }
 
-  return normalizeAndFilterFiles(splitGitFileList(result.stdout), config, rootDir);
+  return normalizeAndFilterFiles([
+    ...splitGitFileList(result.stdout),
+    ...collectSubmoduleWorktreeFiles(rootDir, config.include)
+  ], config, rootDir);
 }
 
-export function collectBaselineFiles(workDir: string, config: QualityConfig): string[] {
+export function collectBaselineFiles(workDir: string, config: ScanInputConfig): string[] {
+  const pathspecArgs = gitGlobPathspecArgs(config.include);
   const result = runGit([
     "ls-files",
     "--cached",
     "--others",
     "--exclude-standard",
-    ...gitGlobPathspecArgs(config.include)
+    ...pathspecArgs
   ], {
     cwd: workDir,
     maxBuffer: 1024 * 1024 * 64
   });
 
   if (!processFailed(result) && result.stdout.trim()) {
-    return normalizeAndFilterFiles(splitGitFileList(result.stdout), config, workDir);
+    return normalizeAndFilterFiles([
+      ...splitGitFileList(result.stdout),
+      ...collectSubmoduleWorktreeFiles(workDir, config.include)
+    ], config, workDir);
   }
 
   return collectBaselineFilesFallback(workDir, config);
@@ -72,24 +83,17 @@ export function getChangedFileList(opts: ChangedFilesOptions, rootDir: string): 
     }
   }
 
-  const result = runGit([
-    "diff",
-    "--name-only",
-    "HEAD~1..HEAD",
-    ...gitGlobPathspecArgs(opts.scanInputPaths ?? [])
-  ], {
-    cwd: rootDir
-  });
-
-  if (processFailed(result)) {
-    return getChangedFilesForSingleCommitRepo(rootDir, opts.scanInputPaths ?? []);
-  }
-
-  const committedChangedFiles = splitGitFileList(result.stdout);
+  const scanInputPaths = opts.scanInputPaths ?? [];
+  const committedChangedFiles = getRevisionChangedFiles(
+    rootDir,
+    "HEAD~1",
+    "HEAD",
+    scanInputPaths
+  );
   const workingTreeChangedFiles = getWorkingTreeChangedFiles(rootDir, [...(opts.scanInputPaths ?? [])])
     .map(toSlashPath);
 
-  return [...new Set([...committedChangedFiles, ...workingTreeChangedFiles])];
+  return uniqueSorted([...committedChangedFiles, ...workingTreeChangedFiles]);
 }
 
 export function buildFingerprints(fileMap: CodeAreaFileMap, rootDir: string): Record<string, CodeAreaFingerprint> {
@@ -114,7 +118,7 @@ function normalizeFingerprintText(content: string): string {
   return content.replace(/\r\n?/g, "\n");
 }
 
-function collectFilesFallback(rootDir: string, config: QualityConfig): string[] {
+function collectFilesFallback(rootDir: string, config: ScanInputConfig): string[] {
   const files: string[] = [];
 
   for (const relPath of walkFiles(rootDir, { ignoredDirs: config.excludeDirs })) {
@@ -126,7 +130,7 @@ function collectFilesFallback(rootDir: string, config: QualityConfig): string[] 
   return uniqueSorted(files);
 }
 
-function collectBaselineFilesFallback(workDir: string, config: QualityConfig): string[] {
+function collectBaselineFilesFallback(workDir: string, config: ScanInputConfig): string[] {
   const files: string[] = [];
 
   for (const relPath of walkFiles(workDir, { ignoredDirs: config.excludeDirs })) {
@@ -138,36 +142,16 @@ function collectBaselineFilesFallback(workDir: string, config: QualityConfig): s
   return uniqueSorted(files);
 }
 
-function getChangedFilesForSingleCommitRepo(rootDir: string, scanInputPaths: string[] | readonly string[]): string[] {
-  const rootResult = runGit([
-    "diff-tree",
-    "--no-commit-id",
-    "--name-only",
-    "-r",
-    "HEAD",
-    ...gitGlobPathspecArgs(scanInputPaths)
-  ], {
-    cwd: rootDir
-  });
-
-  const workingTreeChangedFiles = getWorkingTreeChangedFiles(rootDir, [...scanInputPaths])
-    .map(toSlashPath);
-
-  if (!processFailed(rootResult)) {
-    return [...new Set([...splitGitFileList(rootResult.stdout), ...workingTreeChangedFiles])];
-  }
-
-  return [...new Set(workingTreeChangedFiles)];
+function normalizeAndFilterFiles(files: string[], config: ScanInputConfig, rootDir: string): string[] {
+  return uniqueSorted(
+    files
+      .map(toSlashPath)
+      .filter((f) => existsSync(resolve(rootDir, f)))
+      .filter((f) => isScanInputFile(f, config))
+  );
 }
 
-function normalizeAndFilterFiles(files: string[], config: QualityConfig, rootDir: string): string[] {
-  return files
-    .map(toSlashPath)
-    .filter((f) => existsSync(resolve(rootDir, f)))
-    .filter((f) => isScanInputFile(f, config));
-}
-
-function isScanInputFile(filePath: string, config: QualityConfig): boolean {
+function isScanInputFile(filePath: string, config: ScanInputConfig): boolean {
   const normalized = toSlashPath(filePath);
   return config.include.some((pattern) => minimatch(normalized, pattern)) &&
     !isExcluded(normalized, config.excludeDirs, config.generatedFiles);

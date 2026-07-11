@@ -13,13 +13,18 @@ import { gitGlobPathspecArgs } from "./git-pathspec.ts";
 import {
   gitCommitDate,
   gitHeadSha,
-  parseGitStatusPaths,
   processFailed,
   runGit,
   runProcessSync,
-  splitGitFileList,
   toSlashPath
 } from "../../../foundation/src/index.ts";
+import {
+  collectRevisionChanges,
+  collectWorkingTreeChanges,
+  submoduleHistoryPaths,
+  uniqueSortedPaths
+} from "./revision-tree.ts";
+import { materializeRevisionGitlinks } from "./revision-materialization.ts";
 
 type BaselineCommitResult =
   | { date: string | null; ok: true; reason: string; sha: string }
@@ -54,15 +59,19 @@ export function locateBaselineCommit({
     return { ok: false, error: "git rev-parse HEAD failed: no git repository" };
   }
 
-  const patternArgs = gitGlobPathspecArgs(scanInputPaths, { omitWhenEmpty: true });
   if (!hasParentCommit(cwd, headSha)) {
     return { ok: false, error: "no-baseline-commit: repository has only one commit" };
   }
 
+  const historyPaths = [
+    ...scanInputPaths,
+    ...submoduleHistoryPaths(cwd, headSha, scanInputPaths)
+  ];
+  const patternArgs = gitGlobPathspecArgs([...new Set(historyPaths)], { omitWhenEmpty: true });
+
   const headModifiedScanInputs = commitModifiesScanInputs({
     cwd,
     headSha,
-    patternArgs,
     scanInputPaths
   });
 
@@ -121,6 +130,21 @@ export function materializeBaselineRevision({
     };
   }
 
+  const submoduleError = materializeRevisionGitlinks({
+    archiveDir: baselineWorkDir,
+    archiveIndex: { value: 0 },
+    repository: cwd,
+    revision: commitSha,
+    targetDir: untarDir
+  });
+  if (submoduleError) {
+    return {
+      ok: false,
+      error: submoduleError,
+      reason: "baseline-materialization-failed"
+    };
+  }
+
   return { ok: true, workDir: untarDir };
 }
 
@@ -137,24 +161,11 @@ export function detectScanInputChange({
     return { changed: true, changedFiles: [] };
   }
 
-  const diffArgs = [
-    "diff",
-    "--name-only",
-    `${baselineSha}..HEAD`,
-    ...gitGlobPathspecArgs(scanInputPaths)
-  ];
-
-  const diffResult = runGit(diffArgs, { cwd });
-
-  if (diffResult.error) {
-    return { changed: true, changedFiles: [] };
-  }
-
   const changedFiles = [
-    ...splitGitFileList(diffResult.stdout),
+    ...getRevisionChangedFiles(cwd, baselineSha, "HEAD", scanInputPaths),
     ...getWorkingTreeChangedFiles(cwd, scanInputPaths)
   ].map(toSlashPath);
-  const uniqueChangedFiles = [...new Set(changedFiles)];
+  const uniqueChangedFiles = uniqueSortedPaths(changedFiles);
   const scanInputChanged = changedFiles.some((f) =>
     scanInputPaths.some((p) => fileMatchesPattern(f, p))
   );
@@ -165,20 +176,27 @@ export function detectScanInputChange({
 // ── Helpers ───────────────────────────────────────────────────────────
 
 export function getWorkingTreeChangedFiles(cwd: string, scanInputPaths: string[]): string[] {
-  const statusResult = runGit([
-    "status",
-    "--porcelain",
-    "--untracked-files=all",
-    ...gitGlobPathspecArgs(scanInputPaths)
-  ], {
-    cwd
-  });
+  return uniqueSortedPaths(collectWorkingTreeChanges({
+    prefix: "",
+    repository: cwd,
+    revision: "HEAD",
+    scanInputPaths
+  }));
+}
 
-  if (processFailed(statusResult)) {
-    return [];
-  }
-
-  return parseGitStatusPaths(statusResult.stdout);
+export function getRevisionChangedFiles(
+  cwd: string,
+  fromRevision: string,
+  toRevision: string,
+  scanInputPaths: string[] | readonly string[]
+): string[] {
+  return uniqueSortedPaths(collectRevisionChanges({
+    fromRevision,
+    prefix: "",
+    repository: cwd,
+    scanInputPaths,
+    toRevision
+  }));
 }
 
 function hasParentCommit(cwd: string, headSha: string): boolean {
@@ -217,19 +235,14 @@ function baselineForUnchangedHead(cwd: string, headSha: string, patternArgs: str
 function commitModifiesScanInputs({
   cwd,
   headSha,
-  patternArgs,
   scanInputPaths
 }: {
   cwd: string;
   headSha: string;
-  patternArgs: string[];
   scanInputPaths: string[];
 }): boolean {
-  const headDiff = runGit(["diff-tree", "--no-commit-id", "--name-only", "-r", headSha, ...patternArgs], {
-    cwd
-  });
-  const headChangedFiles = splitGitFileList(headDiff.stdout);
-  return headChangedFiles.some((file) => scanInputPaths.some((pattern) => fileMatchesPattern(file, pattern)));
+  const parent = `${headSha}^`;
+  return getRevisionChangedFiles(cwd, parent, headSha, scanInputPaths).length > 0;
 }
 
 function latestCodeCommitBeforeHead(cwd: string, headSha: string, patternArgs: string[]): string | null {

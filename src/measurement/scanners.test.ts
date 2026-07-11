@@ -94,6 +94,7 @@ describe("quality scanner output parsing", () => {
 
     const result = parseJscpdJsonReport(json, "D:\\repo");
 
+    // jscpd 5.x delegates to its bundled Rust binary, which reports a cpd prefix.
     assert.equal(parseJscpdVersionOutput("cpd 5.0.11"), "5.0.11");
     assert.equal(result.ok, true);
     assert.equal(result.fragments[0]!.tokenCount, 50);

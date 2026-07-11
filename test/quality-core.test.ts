@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 
 import {
   classifyFiles,
-  createEmptyMetrics,
   generateWarningChannels,
   validateMetrics
 } from "../src/index.ts";
@@ -15,21 +14,11 @@ describe("script quality core", () => {
     expect(fileMap.get("typescript-production-scripts")).toEqual(["scripts/a.ts"]);
   });
 
-  test("creates and validates a metrics envelope", () => {
-    const metrics = createEmptyMetrics({
-      repository: "/repo",
-      commitSha: "abc123",
-      commitTitle: "test",
-      configVersion: config.version,
-      tools: [],
-      scope: {
-        include: config.include,
-        excludeDirs: config.excludeDirs,
-        generatedFiles: config.generatedFiles
-      }
-    });
+  test("rejects a metrics envelope without metadata", () => {
+    const validation = validateMetrics({});
 
-    expect(validateMetrics(metrics).valid).toBe(true);
+    expect(validation.valid).toBe(false);
+    expect(validation.errors.includes("metrics.metadata is required")).toBe(true);
   });
 
   test("generates warning channels from caller-provided thresholds", () => {

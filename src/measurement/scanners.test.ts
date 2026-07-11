@@ -11,10 +11,7 @@ import {
   parseJscpdVersionOutput,
   scanWithJscpd
 } from "./scanners/jscpd/scanner.ts";
-import {
-  SCC_BY_FILE_CSV_HEADER,
-  parseSccCSV
-} from "./scanners/scc.ts";
+import { parseSccCSV } from "./scanners/scc.ts";
 import { checkJscpd } from "./scanners/tool-availability/jscpd.ts";
 import { TEST_QUALITY_CONFIG } from "../../test/config.ts";
 
@@ -24,7 +21,7 @@ describe("quality scanner output parsing", () => {
   // @case AUX-QUALITY-PARSER-001
   it("parses scc 3.7 Provider paths and rejects unknown CSV headers", () => {
     const csv = [
-      SCC_BY_FILE_CSV_HEADER,
+      "Language,Provider,Filename,Lines,Code,Comments,Blanks,Complexity,Bytes,ULOC",
       "Rust,crates/docnav/src/lib.rs,lib.rs,120,90,20,10,17,4096,70",
       "TypeScript,scripts/quality/scan.ts,scan.ts,60,50,5,5,8,2048,45"
     ].join("\n");
